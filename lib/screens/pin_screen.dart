@@ -1,9 +1,9 @@
 // fisier: lib/screens/pin_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // NOU: Pentru tastatură
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:forex_journal_app/main.dart'; 
+import 'package:forex_journal_app/main.dart';
+import 'package:local_auth/local_auth.dart'; // Pachetul pentru amprentă/face ID
 
 class PinScreen extends StatefulWidget {
   final bool isSettingPin; 
@@ -28,56 +28,59 @@ class _PinScreenState extends State<PinScreen> {
   String _message = '';
   int _step = 0; 
 
-  // NOU: FocusNode pentru a asculta tastatura fizică
-  final FocusNode _focusNode = FocusNode();
+  // Serviciul de autentificare locală (amprentă, etc.)
+  final LocalAuthentication _localAuth = LocalAuthentication();
+  bool _biometrieDisponibila = false;
 
   @override
   void initState() {
     super.initState();
     _initPinLogic();
-    // Cerem focus imediat ce se deschide ecranul pentru a putea tasta direct
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusNode.requestFocus();
-    });
-  }
-
-  @override
-  void dispose() {
-    _focusNode.dispose(); // Curățăm memoria
-    super.dispose();
   }
 
   Future<void> _initPinLogic() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // 1. Verificăm suportul pentru biometrie
+    bool canCheck = false;
+    try {
+      canCheck = await _localAuth.canCheckBiometrics && await _localAuth.isDeviceSupported();
+    } catch (e) {
+      // E posibil să apară erori pe dispozitive vechi, le ignorăm.
+    }
+
     setState(() {
       _storedPin = prefs.getString('user_pin');
+      _biometrieDisponibila = canCheck;
       _isLoading = false;
       _updateMessage();
     });
+
+    // 2. Dacă e ecran de deblocare și avem biometrie, pornim direct scanarea
+    if (!widget.isSettingPin && !widget.isChangingPin && canCheck) {
+       // Punem un mic delay ca să se randeze UI-ul înainte să apară popup-ul
+       Future.delayed(const Duration(milliseconds: 500), _authenticateWithBiometrics);
+    }
   }
 
-  // --- NOU: GESTIONAREA TASTELOR FIZICE ---
-  void _handleKeyEvent(KeyEvent event) {
-    // Reacționăm doar când tasta este apăsată jos (KeyDown), nu și când o ridici
-    if (event is KeyDownEvent) {
-      final key = event.logicalKey;
+  // --- LOGICA DE AUTENTIFICARE BIOMETRICĂ ---
+  Future<void> _authenticateWithBiometrics() async {
+    try {
+      final bool didAuthenticate = await _localAuth.authenticate(
+        localizedReason: 'Autentifică-te pentru a accesa Jurnalul',
+        options: const AuthenticationOptions(
+          stickyAuth: true, // Rămâne activ dacă aplicația intră scurt în background
+          biometricOnly: false, // Pe Windows permite și PIN-ul laptopului
+        ),
+      );
 
-      // Cifrele 0-9 (atât cele de sus, cât și Numpad)
-      if (key == LogicalKeyboardKey.digit0 || key == LogicalKeyboardKey.numpad0) _onNumberPress('0');
-      else if (key == LogicalKeyboardKey.digit1 || key == LogicalKeyboardKey.numpad1) _onNumberPress('1');
-      else if (key == LogicalKeyboardKey.digit2 || key == LogicalKeyboardKey.numpad2) _onNumberPress('2');
-      else if (key == LogicalKeyboardKey.digit3 || key == LogicalKeyboardKey.numpad3) _onNumberPress('3');
-      else if (key == LogicalKeyboardKey.digit4 || key == LogicalKeyboardKey.numpad4) _onNumberPress('4');
-      else if (key == LogicalKeyboardKey.digit5 || key == LogicalKeyboardKey.numpad5) _onNumberPress('5');
-      else if (key == LogicalKeyboardKey.digit6 || key == LogicalKeyboardKey.numpad6) _onNumberPress('6');
-      else if (key == LogicalKeyboardKey.digit7 || key == LogicalKeyboardKey.numpad7) _onNumberPress('7');
-      else if (key == LogicalKeyboardKey.digit8 || key == LogicalKeyboardKey.numpad8) _onNumberPress('8');
-      else if (key == LogicalKeyboardKey.digit9 || key == LogicalKeyboardKey.numpad9) _onNumberPress('9');
-      
-      // Backspace sau Delete
-      else if (key == LogicalKeyboardKey.backspace || key == LogicalKeyboardKey.delete) {
-        _onDeletePress();
+      if (didAuthenticate) {
+         // Succes! Deblocăm aplicația.
+         MyApp.of(context)?.unlockApp();
       }
+    } catch (e) {
+      // Dacă userul anulează sau eșuează, nu facem nimic, rămâne la ecranul cu PIN.
+      // print("Eroare biometrie: $e");
     }
   }
 
@@ -117,6 +120,7 @@ class _PinScreenState extends State<PinScreen> {
   }
 
   Future<void> _handlePinComplete() async {
+    // --- Logica principală la introducerea a 4 cifre ---
     if (widget.isChangingPin) {
       if (_step == 0) {
         if (_enteredPin == _storedPin) {
@@ -160,6 +164,7 @@ class _PinScreenState extends State<PinScreen> {
       }
     }
     else {
+      // Modul normal: Deblocare cu PIN
       if (_enteredPin == _storedPin) {
         if (mounted) {
            MyApp.of(context)?.unlockApp();
@@ -197,7 +202,6 @@ class _PinScreenState extends State<PinScreen> {
 
     if (mounted) {
       await MyApp.of(context)?.updatePinStatus();
-      
       if (widget.isChangingPin && Navigator.canPop(context)) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -215,63 +219,66 @@ class _PinScreenState extends State<PinScreen> {
     final textColor = isDark ? Colors.white : Colors.black87;
     final buttonColor = isDark ? Colors.grey[800] : Colors.grey[200];
 
-    // Îmbrăcăm tot ecranul în KeyboardListener
-    return KeyboardListener(
-      focusNode: _focusNode,
-      onKeyEvent: _handleKeyEvent,
-      child: Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        appBar: widget.isChangingPin 
-            ? AppBar(
-                backgroundColor: Colors.transparent, 
-                elevation: 0,
-                iconTheme: IconThemeData(color: textColor),
-              ) 
-            : null,
-        body: SafeArea(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.lock_outline, size: 60, color: Colors.teal),
-              const SizedBox(height: 20),
-              Text(
-                _message,
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 30),
-              
-              // Buline
-              Row(
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      appBar: widget.isChangingPin 
+          ? AppBar(
+              backgroundColor: Colors.transparent, 
+              elevation: 0,
+              iconTheme: IconThemeData(color: textColor),
+            ) 
+          : null,
+      body: SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline, size: 60, color: Colors.teal),
+            const SizedBox(height: 20),
+            Text(
+              _message,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 30),
+            
+            // Buline
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(4, (index) {
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 10),
+                  width: 15,
+                  height: 15,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: index < _enteredPin.length ? Colors.teal : (isDark ? Colors.grey[700] : Colors.grey[300]),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 50),
+
+            // Tastatura
+            Expanded(
+              child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (index) {
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 10),
-                    width: 15,
-                    height: 15,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: index < _enteredPin.length ? Colors.teal : (isDark ? Colors.grey[700] : Colors.grey[300]),
-                    ),
-                  );
-                }),
+                children: [
+                  _buildNumberRow(['1', '2', '3'], isDark, textColor, buttonColor),
+                  _buildNumberRow(['4', '5', '6'], isDark, textColor, buttonColor),
+                  _buildNumberRow(['7', '8', '9'], isDark, textColor, buttonColor),
+                  // Ultimul rând: buton bio (dacă e cazul), 0 și ștergere
+                  _buildNumberRow(
+                    [
+                      (_biometrieDisponibila && !widget.isSettingPin && !widget.isChangingPin) ? 'bio' : null, 
+                      '0', 
+                      'del'
+                    ], 
+                    isDark, textColor, buttonColor
+                  ), 
+                ],
               ),
-              const SizedBox(height: 50),
-      
-              // Tastatura Ecran
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildNumberRow(['1', '2', '3'], isDark, textColor, buttonColor),
-                    _buildNumberRow(['4', '5', '6'], isDark, textColor, buttonColor),
-                    _buildNumberRow(['7', '8', '9'], isDark, textColor, buttonColor),
-                    _buildNumberRow([null, '0', 'del'], isDark, textColor, buttonColor), 
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -283,8 +290,10 @@ class _PinScreenState extends State<PinScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: items.map((item) {
+          // Spațiu gol
           if (item == null) return const SizedBox(width: 70, height: 70);
           
+          // Buton Ștergere
           if (item == 'del') {
             return InkWell(
               onTap: _onDeletePress,
@@ -295,7 +304,20 @@ class _PinScreenState extends State<PinScreen> {
               ),
             );
           }
-      
+
+          // Butonul pentru Biometrie (Amprentă)
+          if (item == 'bio') {
+             return InkWell(
+              onTap: _authenticateWithBiometrics,
+              borderRadius: BorderRadius.circular(35),
+              child: Container(
+                width: 70, height: 70, alignment: Alignment.center,
+                child: Icon(Icons.fingerprint, size: 35, color: Colors.teal),
+              ),
+            );
+          }
+
+          // Buton Cifră
           return InkWell(
             onTap: () => _onNumberPress(item),
             borderRadius: BorderRadius.circular(35),

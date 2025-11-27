@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "477583309592",
+    "project_id": "forex-journal-app",
+    "storage_bucket": "forex-journal-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:477583309592:android:dc509ba5cf100bea047c6d",
+        "android_client_info": {
+          "package_name": "com.example.forex_journal_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUf4D3PPAjOo6yaLsF-WQV6AeDexBgl7o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

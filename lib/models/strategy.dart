@@ -1,18 +1,26 @@
-import 'package:isar/isar.dart';
-
-part 'strategy.g.dart';
-
-@Collection()
 class Strategy {
-  Id id = Isar.autoIncrement; 
-
-  @Index(unique: true)
-  late String name; 
-  
-  String? description; 
+  String id;
+  String name;
+  String description;
 
   Strategy({
+    this.id = '',
     required this.name,
-    this.description,
+    this.description = '',
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'description': description,
+    };
+  }
+
+  factory Strategy.fromMap(Map<String, dynamic> data, String id) {
+    return Strategy(
+      id: id,
+      name: data['name'] ?? '',
+      description: data['description'] ?? '',
+    );
+  }
 }
