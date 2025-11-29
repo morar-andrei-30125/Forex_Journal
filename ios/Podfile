@@ -1,0 +1,39 @@
+Calea: Forex_Journal/ios/Podfile
+
+-----------------------------------------------------------
+
+MODIFICARE CRITICĂ: Setează versiunea minimă necesară
+
+Firebase și Cloud Firestore au nevoie de minim iOS 15.0, dar folosim 16.0 pentru siguranță.
+
+Această linie rezolvă eroarea "higher minimum iOS deployment version".
+
+-----------------------------------------------------------
+
+platform :ios, '16.0'
+
+Restul configurației este standard Flutter/CocoaPods
+
+flutter_application_path = File.expand_path('..', dir)
+load File.join(flutter_application_path, '.flutter-plugins')
+
+target 'Runner' do
+use_frameworks!
+use_modular_headers!
+
+Încărcarea tuturor pachetelor Flutter
+
+flutter_install_all_ios_pods flutter_application_path
+
+Forțăm setarea IPHONEOS_DEPLOYMENT_TARGET la 16.0 pentru TOATE pod-urile
+
+Aceasta suprascrie orice setare implicită veche sau ascunsă.
+
+post_install do |installer|
+installer.pods_project.targets.each do |target|
+target.build_configurations.each do |config|
+config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+end
+end
+end
+end
